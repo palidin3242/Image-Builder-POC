@@ -1,0 +1,215 @@
+---
+# vim: sw=2 ts=2 ai expandtab
+
+- name: create AWS instances
+  hosts: instances
+  connection: smart
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: coerce subscription information into yaml
+      set_fact:
+        image_subscription: "{{ image_subscription | from_yaml }}"
+
+    - name: lookup ami by tag
+      amazon.aws.ec2_ami_info:
+        owners: self
+        filters:
+          "tag:Name": "{{ ami_name }}"
+      register: ami_info
+      delegate_to: localhost
+      changed_when: ami_info.images | length == 0
+
+    - name: lookup ami by name
+      amazon.aws.ec2_ami_info:
+        owners: self
+        filters:
+          name: "{{ ami_name }}"
+      register: ami_info_name
+      delegate_to: localhost
+      changed_when: ami_info_name.images | length == 0
+      when: ami_info is changed
+
+    - fail:
+        msg: "AMI image id was not found: name={{ ami_name }}"
+      when:
+        - ami_info is changed
+        - ami_info_name is changed
+
+    - name: set ami_info from ami_info_name if needed
+      set_fact:
+        ami_info: "{{ ami_info_name }}"
+      when: ami_info is changed
+
+    - name: start an instance with a public IP address
+      amazon.aws.ec2_instance:
+        name: "{{ inventory_hostname }}"
+        key_name: "{{ ec2_key_name }}"
+        vpc_subnet_id: "{{ ec2_vpc_subnet_id }}"
+        instance_type: "{{ ec2_instance_type }}"
+        purge_tags: false
+        security_groups: "{{ ec2_security_groups }}"
+        network:
+          assign_public_ip: "{{ allow_public_ip }}"
+        image_id: "{{ ami_info.images | map(attribute='image_id') | last }}"
+        tags:
+          Name: "{{ inventory_hostname }}"
+        volumes:
+          - device_name: /dev/sda1
+            ebs:
+              delete_on_termination: true
+      delegate_to: localhost
+      register: instance_info
+
+    - name: assign tags to instance
+      amazon.aws.ec2_tag:
+        resource: "{{ instance_info.instances.0.instance_id }}"
+        state: present
+        tags: "{{ tags }}"
+      delegate_to: localhost
+
+    - debug:
+        var: instance_info.instances.0.private_ip_address
+
+    - set_fact:
+        ansible_host: "{{ instance_info.instances.0.private_ip_address }}"
+
+    - name: Wait 600 seconds for target connection to become reachable/usable
+      ansible.builtin.wait_for_connection:
+
+    - name: create sudo file for main user
+      copy:
+        src: 90-ansible-user
+        dest: /etc/sudoers.d/90-ansible-user
+        mode: '0600'
+        owner: root
+        group: root
+      become: true
+      vars:
+        ansible_user: "{{ preq_become_user }}"
+
+    - name: Copy Insights tags
+      template:
+        src: insights_tags.yml.j2
+        dest: /etc/insights-client/tags.yaml
+      become: true
+
+    - name: fixup AWS host to work with Insights Advisor
+      block:
+        - name: auto_update on for insights-client.conf
+          ansible.builtin.lineinfile:
+            path: /etc/insights-client/insights-client.conf
+            regexp: '^auto_update='
+            line: auto_update=True
+        - name: manage_repos on for rhsm.conf
+          ansible.builtin.lineinfile:
+            path: /etc/rhsm/rhsm.conf
+            regexp: '^manage_repos ='
+            line: manage_repos = 1
+        - name: remove RHUI repos
+          ansible.builtin.dnf:
+            name: 'rh-*-rhui-client'
+            state: absent
+      become: true
+
+    - set_fact:
+        rhc_auth:
+          activation_keys:
+            keys:
+              - "{{ image_subscription['activation-key'] }}"
+        rhc_organization: "{{ image_subscription.organization }}"
+        # rhc_release: null
+
+    - name: register system
+      ansible.builtin.include_role:
+        name: redhat.rhel_system_roles.rhc
+        apply:
+          become: true
+
+    - name: upload insights data and tags
+      command: insights-client
+      become: true
+      register: insights_client
+      changed_when: false
+
+    - name: get insights_id
+      ansible.builtin.slurp:
+        src: /etc/insights-client/machine-id
+      register: insights_lookup_id
+
+    - name: extract insights_system_id and insights_lookup_id
+      set_fact:
+        cacheable: true
+        insights_system_id: "{{ (insights_client.stdout_lines | last | urlsplit).path | basename}}"
+        insights_lookup_id: "{{ insights_lookup_id.content | b64decode | trim }}"
+
+- name: configure instances
+  hosts: instances
+  connection: local
+  gather_facts: true
+  become: false
+  tasks:
+    - name: ensure ec2 has the insights tags
+      amazon.aws.ec2_tag:
+        resource: "{{ instance_info.instances.0.instance_id }}"
+        state: present
+        tags:
+          insights_lookup_id: "{{ insights_lookup_id }}"
+          insights_system_id: "{{ insights_system_id }}"
+
+    - name: create groups of insights templates
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        groups: insights_templates_group
+        patch_template_name: "{{ item }}"
+        token: "{{ token | d('') }}"
+        token_expire: "{{ token_expire | d(0) | int }}"
+      changed_when: false
+      loop: "{{ groups.instances | map('extract', hostvars, 'ami_name') | list | unique }}"
+
+- name: Validate Insights Patch Templates
+  hosts: insights_templates_group
+  connection: local
+  gather_facts: false
+  become: false
+  roles:
+    - rh-insights-login
+    - rh-patch-template
+
+  tasks:
+    - name: extract list of hosts that match patch template
+      set_fact:
+        system_ids: "{{ hostvars | dictsort | selectattr('0', 'in', groups.instances) | selectattr('1.ami_name', 'equalto', inventory_hostname) | map(attribute='1.insights_system_id') | list }}"
+
+    - name: get systems assigned to patch template
+      ansible.builtin.uri:
+        url: "https://console.redhat.com/api/patch/v3/baselines/{{ patch_template.data.id }}/systems"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ token }}"
+      register: patch_template_systems
+
+    - set_fact:
+        old_system_ids: "{{ patch_template_systems.json.data | map(attribute='inventory_id') | sort | list }}"
+        new_system_ids: "{{ system_ids | sort | list }}"
+
+    - set_fact:
+        request_body:
+          config:
+            to_time: "{{ patch_template.data.attributes.config.to_time }}"
+          description: "{{ patch_template.data.attributes.description }}"
+          name: "{{ patch_template.data.attributes.name }}"
+          inventory_ids: "{{ new_system_ids | zip_longest([], fillvalue=true) | list | items2dict(key_name=0, value_name=1) }}"
+
+    - name: assign systems to patch template
+      ansible.builtin.uri:
+        url: "https://console.redhat.com/api/patch/v3/baselines/{{ patch_template.data.id }}"
+        method: PUT
+        body_format: json
+        body: "{{ request_body }}"
+        headers:
+          Authorization: "Bearer {{ token }}"
+      changed_when: true
+      register: out
+      when: old_system_ids != new_system_ids

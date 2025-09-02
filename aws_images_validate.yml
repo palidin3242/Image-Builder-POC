@@ -1,0 +1,15 @@
+---
+# vim: sw=2 ts=2 ai expandtab
+
+- name: Validate AWS Images
+  hosts: images
+  connection: local
+  gather_facts: false
+  become: false
+  roles:
+    - aws-validate-image
+
+  tasks:
+    - fail:
+        msg: "Image does not exist!"
+      when: ami_info_validate is changed

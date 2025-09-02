@@ -1,0 +1,63 @@
+---
+# vim: sw=2 ts=2 ai expandtab
+
+- name: clean up demo systems
+  hosts: instances
+  connection: smart
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: lookup instances
+      amazon.aws.ec2_instance_info:
+        filters:
+          "tag:Name": "{{ inventory_hostname }}"
+          "instance-state-name": "running"
+      register: ec2_instance
+      failed_when: ec2_instance.instances | length == 0
+      delegate_to: localhost
+
+    - set_fact:
+        ec2_id: "{{ ec2_instance.instances.0.instance_id }}"
+        ansible_host: "{{ ec2_instance.instances.0.private_ip_address }}"
+
+    - name: check if subscribed
+      command: subscription-manager identity
+      register: rhsm_id
+      changed_when: rhsm_id.rc == 0
+      failed_when:
+        - rhsm_id.rc != 0
+        - not ('This system is not yet registered.' in rhsm_id.stderr)
+      become: true
+
+    - name: unregister and remove insights
+      command: rhc disconnect
+      when: rhsm_id is changed
+      become: true
+
+    - name: delete from insights if able
+      block:
+        - ansible.builtin.include_role:
+            name: rh-insights-login
+
+        - name: delete host from insights
+          ansible.builtin.uri:
+            url: "https://console.redhat.com/api/inventory/v1/hosts/{{ ec2_instance.instances.0.tags.insights_system_id }}"
+            method: DELETE
+            headers:
+              Authorization: "Bearer {{ token }}"
+          register: insights_delete
+          changed_when: insights_delete.status == 200
+          failed_when: insights_delete.status not in [200,404]
+      when: ec2_instance.instances.0.tags.insights_system_id is defined
+
+    - debug:
+        var: ec2_id
+
+    - name: delete ec2 instance
+      amazon.aws.ec2_instance:
+        instance_ids:
+          - "{{ ec2_id }}"
+        state: absent
+      delegate_to: localhost
+

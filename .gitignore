@@ -1,0 +1,8 @@
+*~
+.*.swp
+extras/controller-api/group_vars/all/99-vault.yml
+extras/controller-api/token.json
+extras/controller-api/tower_cli.cfg
+extras/gonoph-ee-aws/.context-built
+extras/gonoph-ee-aws/ansible.cfg
+extras/gonoph-ee-aws/context

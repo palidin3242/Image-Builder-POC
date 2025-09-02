@@ -1,0 +1,28 @@
+---
+# vim: sw=2 ts=2 ai expandtab
+
+- name: download, convert, and upload image
+  hosts: all
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    srcfile: "/tmp/{{ inventory_hostname }}.qcow2"
+    dstfile: "/tmp/{{ inventory_hostname }}.vmdk"
+  roles:
+    - aws-validate-image
+
+  tasks:
+    - name: Create image if it does not exist on AWS
+      block:
+
+        - ansible.builtin.include_role:
+            name: rh-insights-login
+
+        - ansible.builtin.include_role:
+            name: rh-imagebuilder-create
+
+        - ansible.builtin.include_role:
+            name: aws-import-image
+
+      when: ami_info_validate is changed

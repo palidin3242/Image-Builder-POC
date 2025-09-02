@@ -1,0 +1,171 @@
+---
+# vim: sw=2 ts=2 ai expandtab
+
+- name: Get list of advisories
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+
+  roles:
+    - rh-insights-login
+
+  tasks:
+    - name: get list of advisories
+      ansible.builtin.uri:
+        url: "https://console.redhat.com/api/patch/v3/advisories?{{ query | urlencode }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ token }}"
+      register: advisories
+      changed_when: advisories.json.data | length > 0
+      vars:
+        query:
+          "tags": "insights-client/group=insights-managed"
+
+    - name: turn advisories into inventory
+      ansible.builtin.add_host:
+        name: "{{ item.id | urlencode }}"
+        groups: advisories
+        attributes: "{{ item.attributes }}"
+        rhsa: "{{ item.id }}"
+        token: "{{ token }}"
+        token_expire: "{{ token_expire | int }}"
+        master_reboot: "{{ advisories.json.data | selectattr('attributes.reboot_required', 'equalto', true) | list | length > 0}}"
+      loop: "{{ advisories.json.data }}"
+      loop_control:
+        label: "{{ item.id }}"
+      when: advisories is changed
+
+    - set_fact:
+        advisories: ''
+
+- name: get list of systems for advisories
+  hosts: advisories
+  connection: local
+  gather_facts: false
+  become: false
+  roles:
+    - rh-insights-login
+
+  tasks:
+    - name: get list of systems by advisory
+      ansible.builtin.uri:
+        url: "https://console.redhat.com/api/patch/v3/advisories/{{ rhsa | urlencode }}/systems?{{ query | urlencode }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ token }}"
+      register: systems
+      changed_when: systems.json.data | length > 0
+      vars:
+        query:
+          "tags": "insights-client/group=insights-managed"
+
+    - set_fact:
+        has_advisory: "{{ systems is changed }}"
+        system_ids: "{{ systems.json.data | map(attribute='id') | list }}"
+
+- name: create playbook for advisories
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  roles:
+    - rh-insights-login
+
+  tasks:
+    - set_fact:
+        advisories: "{{ groups.advisories | d([]) | map('extract', hostvars) | selectattr('systems','changed') | community.general.json_query('[].[ rhsa, system_ids ]') | community.general.dict }}"
+
+    - debug:
+        var: advisories
+
+    - name: craft remediation
+      set_fact:
+        remediation: "{{ query | from_yaml }}"
+      vars:
+        query: |
+          name: "{{ playbook_name }}"
+          archived: false
+          auto_reboot: {{ hostvars[groups.advisories | d(groups.all) | first].master_reboot | d(false) }}
+          {% if advisories | length > 0 %}
+          add:
+            issues:
+          {% for item in advisories.items() %}
+              - id: patch-advisory:{{ item.0 }}
+                resolution: fix
+                systems: {{ item.1 | to_yaml }}
+          {% endfor %}
+          {% endif %}
+
+    - name: search for playbook
+      ansible.builtin.uri:
+        url: "https://console.redhat.com/api/remediations/v1/remediations?{{ query | urlencode }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ token }}"
+      register: playbook
+      changed_when: playbook.json.data | length == 0
+      vars:
+        query:
+          sort: "-updated_at"
+          filter: "{{ playbook_name }}"
+          limit: 50
+          offset: 0
+          hide_archived: true
+          "fields[data]": playbook_runs
+
+    - name: playbook is found - clean it up
+      block:
+
+        - name: get playbook details
+          ansible.builtin.uri:
+            url: "https://console.redhat.com/api/remediations/v1/remediations/{{ playbook.json.data.0.id }}"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ token }}"
+          register: playbook_details
+
+        - name: clean up old issues and systems
+          ansible.builtin.uri:
+            url: "https://console.redhat.com/api/remediations/v1/remediations/{{ playbook.json.data.0.id }}/issues/{{ item }}"
+            method: DELETE
+            headers:
+              Authorization: "Bearer {{ token }}"
+          register: playbook_delete
+          failed_when: playbook_delete.status != 204
+          changed_when: true
+          loop: "{{ playbook_details.json.issues | map(attribute='id') | list }}"
+
+        - name: update playbook
+          ansible.builtin.uri:
+            url: "https://console.redhat.com/api/remediations/v1/remediations/{{ playbook.json.data.0.id }}"
+            method: PATCH
+            body_format: json
+            body: "{{ remediation }}"
+            headers:
+              Authorization: "Bearer {{ token }}"
+          changed_when: advisories | length > 0
+
+      when: playbook is not changed
+
+    - name: create playbook if needed
+      ansible.builtin.uri:
+        url: "https://console.redhat.com/api/remediations/v1/remediations"
+        method: POST
+        body_format: json
+        body: "{{ remediation }}"
+        headers:
+          Authorization: "Bearer {{ token }}"
+      register: playbook_create
+      failed_when: playbook_create.status != 201
+      when: playbook is changed
+
+    - set_fact:
+        playbook_id: "{{ playbook_create.json.id if playbook is changed else playbook.json.data.0.id }}"
+        playbook: ''
+        playbook_create: ''
+        playbook_delete: ''
+
+    - debug:
+        var: playbook_id

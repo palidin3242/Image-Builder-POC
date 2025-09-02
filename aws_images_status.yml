@@ -1,0 +1,22 @@
+---
+# vim: sw=2 ts=2 ai expandtab
+
+- name: check status of AWS import
+  hosts: all
+  connection: local
+  gather_facts: false
+  become: false
+  roles:
+    - aws-validate-image
+
+  tasks:
+    - name: Determine status of AWS import
+      block:
+
+        - ansible.builtin.include_role:
+            name: aws-import-status
+          when:
+            - ami_import_out is defined or ami_copy is defined
+            - ami_import_out.ImportTaskId is defined or ami_copy.ImageId is defined
+
+      when: ami_info_validate is changed
