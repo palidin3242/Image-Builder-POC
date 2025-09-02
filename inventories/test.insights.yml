@@ -1,0 +1,17 @@
+---
+plugin: redhat.insights.insights
+get_patches: yes
+get_tags: True
+compose:
+  ansible_host: insights_tags['insights-client']['ec2:private_ip_address'] | d(insights_ip_addresses | first | d(insights_fqdn) )
+  insights_ansible_host: insights_tags['insights-client']['ec2:private_ip_address'] | d(insights_ip_addresses | first | d(insights_fqdn) )
+  ansible_user: insights_tags['insights-client']['ansible_user'] | d('ansible')
+keyed_groups:
+  - key: insights_tags['insights-client']
+    prefix: insights
+groups:
+  patching: insights_patching.enabled
+  stale: insights_patching.stale
+  bug_patch: insights_patching.rhba_count > 0
+  security_patch: insights_patching.rhsa_count > 0
+  enhancement_patch: insights_patching.rhea_count > 0

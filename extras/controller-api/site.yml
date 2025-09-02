@@ -1,0 +1,40 @@
+---
+# vim: sw=2 ts=2 ai expandtab
+
+- name: Create Controller Credentials and Types
+  hosts: tower
+  connection: local
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: check credential types
+      ansible.builtin.include_tasks:
+        file: tasks/credential_type.yml
+        apply:
+          check_mode: true
+
+    - name: check credential secrets
+      ansible.builtin.include_tasks:
+        file: tasks/credential.yml
+        apply:
+          check_mode: true
+
+    - name: delete credential secrets
+      ansible.builtin.include_tasks:
+        file: tasks/credential.yml
+      when:
+        - ib_secrets is success
+        - ib_vars is changed
+      vars:
+        ib_create: false
+
+    - name: update credential types
+      ansible.builtin.include_tasks:
+        file: tasks/credential_type.yml
+
+    - name: update credential secrets
+      ansible.builtin.include_tasks:
+        file: tasks/credential.yml
+      vars:
+        ib_create: true

@@ -1,0 +1,41 @@
+---
+# vim: sw=2 ts=2 ai expandtab
+
+images:
+  hosts:
+    rhel9-qcow2:
+      image_type: qcow2
+    patch-qcow2:
+      image_type: aws
+  vars:
+    image_map:
+      qcow2:
+        architecture: x86_64
+        image_type: guest-image
+        upload_request:
+          options: {}
+          type: aws.s3
+      aws:
+        architecture: x86_64
+        image_type: aws
+        upload_request:
+          options:
+            share_with_sources:
+              - "{{ sources_aws_list | first }}"
+          type: aws
+    patch_template_prefix: "{{ inventory_hostname }}"
+    expire_seconds: 21600 # 6 hours
+    sources_aws_list: [ "0" ]   # needs to be blank at first
+    image_data:
+      customizations: 
+        packages:
+          - vim-enhanced
+          - bind-utils
+          - container-tools
+          - python3
+        subscription: "{{ image_subscription | from_yaml}}"
+        users: "{{ ssh_users }}"
+      distribution: rhel-9
+      image_description: "image for {{ inventory_hostname }}"
+      image_name: "{{ inventory_hostname }}"
+      image_requests: [ "{{ image_map[image_type] }}" ]

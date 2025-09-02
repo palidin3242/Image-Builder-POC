@@ -1,0 +1,32 @@
+---
+# vim: sw=2 ts=2 ai expandtab
+
+instances:
+  hosts:
+    test1:
+      imagebuilder_name: rhel9-qcow2
+      preq_become_user: cloud-user
+    db1:
+      imagebuilder_name: patch-qcow2
+      preq_become_user: ec2-user
+    webserver2:
+      imagebuilder_name: patch-qcow2
+      preq_become_user: ec2-user
+  vars:
+    allow_public_ip: true
+    ansible_user: ansible
+    ami_name: "{{ imagebuilder_name }}"
+    patch_template_prefix: "{{ imagebuilder_name }}"
+    tags:
+      Name: "{{ inventory_hostname }}"
+      group: insights-managed
+      imagebuilder: "{{ imagebuilder_name }}"
+      ansible_user: "{{ ansible_user }}"
+      patch_template: "{{ imagebuilder_name }}"
+    extra_tags:
+      ec2:
+        instance_id: "{{ instance_info.instances.0.instance_id }}"
+        instance_type: "{{ instance_info.instances.0.instance_type }}"
+        private_ip_address: "{{ instance_info.instances.0.private_ip_address }}"
+        public_ip_address: "{{ instance_info.instances.0.public_ip_address | d(instance_info.instances.0.private_ip_address) }}"
+        availability_zone: "{{ instance_info.instances.0.placement.availability_zone }}"

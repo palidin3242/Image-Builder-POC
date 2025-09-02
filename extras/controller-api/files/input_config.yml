@@ -1,0 +1,60 @@
+---
+fields:
+  - id: aws_default_region
+    type: string
+    label: AWS Default Region
+    secret: false
+  - id: aws_kms_key
+    type: string
+    label: AWS KMS Key
+    secret: false
+  - id: offline_token
+    type: string
+    label: Insights Offline Token
+    secret: true
+  - id: public_key
+    type: string
+    label: User Public Keys
+    secret: true
+    multiline: false
+  - id: rhsm_activation_key
+    type: string
+    label: RHSM Activation Key
+    secret: true
+    multiline: false
+  - id: rhsm_organization
+    type: string
+    label: RHSM Organization
+    secret: false
+    multiline: false
+  - id: ec2_key_name
+    type: string
+    label: AWS SSH keyname
+    secret: false
+    multiline: false
+  - id: ec2_vpc_subnet_id
+    type: string
+    label: AWS subnet_id (subnet-ffffffff)
+    secret: false
+    multiline: false
+  - id: ec2_instance_type
+    type: string
+    label: AWS instance type (t3a.small)
+    secret: false
+    multiline: false
+  - id: ec2_security_groups
+    type: string
+    label: AWS security groups (comma listed - will be converted to a list)
+    secret: false
+    multiline: false
+required:
+  - offline_token
+  - aws_kms_key
+  - aws_default_region
+  - public_key
+  - rhsm_activation_key
+  - rhsm_organization
+  - ec2_key_name
+  - ec2_vpc_subnet_id
+  - ec2_instance_type
+  - ec2_security_groups

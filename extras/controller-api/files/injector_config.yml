@@ -1,0 +1,15 @@
+---
+extra_vars:
+  aws_default_region: "{{ aws_default_region }}"
+  user_ssh_key: '{{ public_key }}'
+  aws_kms_key: '{{ aws_kms_key }}'
+  offline_token: '{{ offline_token }}'
+  rhsm_activation_key: "{{ rhsm_activation_key }}"
+  rhsm_organization: "{{ rhsm_organization | int }}"
+  ec2_key_name: "{{ ec2_key_name }}"
+  ec2_vpc_subnet_id: "{{ ec2_vpc_subnet_id }}"
+  ec2_instance_type: "{{ ec2_instance_type }}"
+  ec2_security_groups: "{{ (ec2_security_groups | trim).split(',') | map('trim') | list }}"
+env:
+  "AWS_REGION": "{{ aws_default_region }}"
+  "AWS_DEFAULT_REGION": "{{ aws_default_region }}"

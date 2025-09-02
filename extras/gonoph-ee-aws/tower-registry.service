@@ -1,0 +1,18 @@
+[Unit]
+Description=service registry for container tower-registry
+After=docker.service
+Requires=mnt-registry.mount
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker rm -f tower-registry
+
+ExecStart=/usr/bin/docker run --rm -e REGISTRY_STORAGE_DELETE_ENABLED=True --user=806465075:806465075 -p 5000:5000 --name=tower-registry -v /mnt/registry:/var/lib/registry:z docker.io/registry:2.6
+
+ExecStop=-/usr/bin/docker stop tower-registry
+SyslogIdentifier=tower-registry
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

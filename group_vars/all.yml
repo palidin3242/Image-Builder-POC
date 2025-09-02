@@ -1,0 +1,14 @@
+---
+image_subscription: |
+  activation-key: "{{ rhsm_activation_key }}"
+  base-url: "http://cdn.redhat.com/"
+  insights: true
+  organization: {{ rhsm_organization | int }}
+  rhc: true
+  server-url: subscription.rhsm.redhat.com
+
+ssh_users:
+  - name: ansible
+    ssh_key: "{{ user_ssh_key }}"
+
+playbook_name: "Image Builder POC Playbook"

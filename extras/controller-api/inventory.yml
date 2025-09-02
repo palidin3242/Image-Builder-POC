@@ -1,0 +1,6 @@
+---
+
+all:
+  hosts:
+    tower:
+      tower_config_file: tower_cli.cfg

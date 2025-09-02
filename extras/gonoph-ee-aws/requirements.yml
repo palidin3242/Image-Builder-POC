@@ -1,0 +1,26 @@
+---
+collections:
+  - name: ansible.posix
+    source: https://cloud.redhat.com/api/automation-hub/
+    version: '==1.5.4'
+
+  - name: amazon.aws
+    source: https://galaxy.ansible.com/
+    source: https://cloud.redhat.com/api/automation-hub/
+    version: '==6.4.0'
+
+  - name: redhat.rhel_system_roles
+    source: https://cloud.redhat.com/api/automation-hub/
+    version: '>=1.22'
+
+  - name: redhat.insights
+    source: https://cloud.redhat.com/api/automation-hub/
+    version: '>=1.0.8'
+
+  - name: community.general
+    source: https://galaxy.ansible.com/
+    version: '==7.4.0'
+
+  - name: community.libvirt
+    source: https://galaxy.ansible.com/
+    version: '==1.2.0'
