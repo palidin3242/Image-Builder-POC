@@ -1,0 +1,164 @@
+---
+# tasks file for rhib-create
+- name: get list of images
+  ansible.builtin.uri:
+    url: https://console.redhat.com/api/image-builder/v1/composes
+    method: GET
+    body_format: form-urlencoded
+    body:
+      limit: 100
+      offset: 0
+    headers:
+      Authorization: "Bearer {{ token }}"
+  register: images
+  delegate_to: localhost
+  run_once: true
+
+- name: set image data and missing flag
+  ansible.builtin.set_fact:
+    image: 
+      missing: "{{ images.json.data | selectattr('image_name', 'eq', image_data.image_name) | list | length == 0 }}"
+      data: "{{ images.json.data | selectattr('image_name', 'eq', image_data.image_name) | list | first | default({}) }}"
+
+- name: determine expired
+  ansible.builtin.set_fact:
+    image:
+      missing: "{{ image.missing }}"
+      data: "{{ image.data }}"
+      expired: "{{ (  now(utc=true) - (created_at[:-1].replace('T',' ') | to_datetime) ).total_seconds() | int > expire_seconds }}"
+  vars:
+    created_at: "{{ image.data.created_at | default( default_created ) }}"
+
+- name: all things if aws image
+  block:
+
+  - name: "if aws image: get list of source types"
+    ansible.builtin.uri:
+      url: "https://console.redhat.com/api/sources/v3.1/source_types?sort_by=name"
+      method: GET
+      headers:
+        Authorization: "Bearer {{ token }}"
+      status_code: 200
+    delegate_to: localhost
+    register: sources_list
+
+  - name: "if aws image: extract aws source"
+    set_fact:
+      sources_aws_type: "{{ sources_list.json.data | selectattr('name', 'eq', 'amazon') | map(attribute='id') | first | default(0) }}"
+
+  - name: "if aws image: get aws sources"
+    ansible.builtin.uri:
+      url: "https://console.redhat.com/api/sources/v3.1/source_types/{{ sources_aws_type }}/sources?sort_by=name"
+      method: GET
+      headers:
+        Authorization: "Bearer {{ token }}"
+      status_code: 200
+    delegate_to: localhost
+    register: sources_aws_list
+
+  - name: "if aws image: get aws source ID"
+    set_fact:
+      sources_aws_list: "{{ sources_aws_list.json.data | map(attribute='id') | list }}"
+
+  - assert:
+      msg: "sources_aws_list is empty"
+      that:
+        - "sources_aws_list | length > 0"
+
+  - name: sources_aws_list
+    debug:
+      var: sources_aws_list
+
+  # all things if aws image
+  when:
+    - image.missing or image.expired
+    - image_type == 'aws'
+
+- debug:
+    var: image
+
+- name: delete compose if expired
+  ansible.builtin.uri:
+    url: "https://console.redhat.com/api/image-builder/v1/composes/{{ image.data.id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ token }}"
+    status_code: 200
+  delegate_to: localhost
+  when:
+    - not image.missing
+    - image.expired
+  changed_when: true
+
+- name: image data
+  debug:
+    var: temp
+  vars:
+    temp:
+      image_data: "{{ image_data }}"
+      image_map: "{{ image_map }}"
+      sources_aws_list: "{{ sources_aws_list }}"
+
+- name: create compose if missing or deleted
+  ansible.builtin.uri:
+    url: https://console.redhat.com/api/image-builder/v1/compose
+    method: POST
+    body_format: json
+    body: "{{ image_data }}"
+    headers:
+      Authorization: "Bearer {{ token }}"
+    status_code: [200, 201]
+  register: compose
+  delegate_to: localhost
+  when: image.missing or image.expired
+  changed_when: true
+
+- name: set new image id if created
+  ansible.builtin.set_fact:
+    image:
+      missing: false
+      expired: false
+      data:
+        id: "{{ compose.json.id }}"
+        image_name: "{{ image_data.image_name }}"
+  when: image.missing or image.expired
+
+- name: get image status
+  ansible.builtin.uri:
+    url: "https://console.redhat.com/api/image-builder/v1/composes/{{ image.data.id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ token }}"
+    status_code: 200
+  register: status
+  delegate_to: localhost
+  until: status.json.image_status.status in [ "building", "success" ]
+  retries: 10
+  delay: 6
+
+- debug:
+    var: status
+
+- name: get image download links
+  ansible.builtin.uri:
+    url: "https://console.redhat.com/api/image-builder/v1/composes/{{ image.data.id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ token }}"
+    status_code: 200
+  register: status
+  delegate_to: localhost
+  until: status.json.image_status.status == "success"
+  retries: 10
+  delay: 60
+
+- name: set status and link
+  ansible.builtin.set_fact:
+    image_info:
+      status: "{{ status.json.image_status.status }}"
+      link: "{{ [ status.json ] | map(attribute='image_status.upload_status.options.url') | first | default('') }}"
+      ami: "{{ [ status.json ] | map(attribute='image_status.upload_status.options.ami') | first | default('') }}"
+      region: "{{ [ status.json ] | map(attribute='image_status.upload_status.options.region') | first | default('') }}"
+
+- debug:
+    var: image_info

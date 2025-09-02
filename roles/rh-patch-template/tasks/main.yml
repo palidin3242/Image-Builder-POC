@@ -1,0 +1,53 @@
+---
+# tasks file for rh-patch-create
+
+- name: get list templates
+  ansible.builtin.uri:
+    url: "https://console.redhat.com/api/patch/v3/baselines?{{ query | urlencode }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ token }}"
+  register: patch_templates
+  delegate_to: localhost
+  changed_when: patch_templates.json.data | length == 0
+  vars:
+    query:
+      limit: 10
+      offset: 0
+      "filter[name]": "{{ patch_template_new.name }}"
+
+- fail:
+    msg: "patch_template_create is false, but unable to find patch_template {{ patch_template_new.name }}"
+  when:
+    - patch_templates is changed
+    - not patch_template_create
+
+- name: create template if missing
+  ansible.builtin.uri:
+    url: https://console.redhat.com/api/patch/v3/baselines/
+    method: PUT
+    body_format: json
+    body: "{{ patch_template_new }}"
+    headers:
+      Authorization: "Bearer {{ token }}"
+  delegate_to: localhost
+  throttle: 1
+  register: patch_template_created
+  when:
+    - patch_templates is changed
+    - patch_template_create
+  changed_when: true
+
+- name: get template info
+  ansible.builtin.uri:
+    url: "https://console.redhat.com/api/patch/v3/baselines/{{ baseline_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ token }}"
+  register: patch_template
+  delegate_to: localhost
+  vars:
+    baseline_id: "{{ patch_templates.json.data | map(attribute='id') | first | default(patch_template_created.json.baseline_id | default(0)) }}"
+
+- set_fact:
+    patch_template: "{{ patch_template.json }}"

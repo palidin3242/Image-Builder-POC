@@ -1,0 +1,10 @@
+---
+# tasks file for aws-import-image
+
+- name: import from link
+  ansible.builtin.include_tasks: import_from_image.yml
+  when: image_info.link
+
+- name: import from ami
+  ansible.builtin.include_tasks: import_from_ami.yml
+  when: image_info.ami

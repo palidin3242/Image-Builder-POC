@@ -1,0 +1,44 @@
+---
+# tasks file for aws-validate-image
+- name: read image data by name
+  amazon.aws.ec2_ami_info:
+    filters:
+      name: "{{ inventory_hostname }}"
+    owners: self
+  register: ami_info_name
+
+- name: read image data by tag
+  amazon.aws.ec2_ami_info:
+    filters:
+      "tag:Name": "{{ inventory_hostname }}"
+    owners: self
+  register: ami_info_tag
+
+- name: merge lists and check images
+  set_fact:
+    ami_info_validate:
+      changed: "{{ ami_lists | length == 0}}"
+      images: "{{ ami_lists }}"
+  vars:
+    ami_lists: "{{ [ ami_info_name.images, ami_info_tag.images ] | community.general.lists_mergeby('name') }}"
+  changed_when: ami_lists | length == 0
+
+- name: ensure role exists
+  command: aws iam get-role --role-name vmimport
+  register: role_info
+  changed_when: role_info.rc != 0
+  failed_when: false
+
+- name: create role
+  command: aws iam create-role --role-name vmimport --assume-role-policy-document file://files/trust-policy.json
+  when: role_info is changed
+
+- name: ensure role policy exists
+  command: aws iam get-role-policy --role-name vmimport --policy-name vmimport
+  register: role_policy_info
+  changed_when: role_policy_info.rc != 0
+  failed_when: false
+
+- name: create role policy
+  command: aws iam put-role-policy --role-name vmimport --policy-name vmimport --policy-document file://files/role-policy.json
+  when: role_policy_info is changed

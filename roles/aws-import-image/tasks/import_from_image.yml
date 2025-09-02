@@ -1,0 +1,43 @@
+---
+# tasks file for aws-import-image
+- name: download image qcow2
+  ansible.builtin.get_url:
+    url: "{{ image_info.link }}"
+    dest: "{{ aws_image_srcfile }}"
+    mode: '0600'
+  throttle: 1
+
+- name: convert qcow2 to vmdk
+  ansible.builtin.command: qemu-img convert -f qcow2 -O vmdk -o adapter_type=lsilogic,subformat=streamOptimized,compat6 {{ aws_image_srcfile }} {{ aws_image_dstfile }}
+  throttle: 1
+
+- name: upload vmdk to AWS
+  amazon.aws.s3_object:
+    bucket: gonoph-net-imgbuilder
+    object: "{{ inventory_hostname }}.vmdk"
+    src: "{{ aws_image_dstfile }}"
+    encrypt: false
+    # encryption_mode: aws:kms
+    # encryption_kms_key_id: "{{ aws_kms_key }}"
+    mode: put
+    overwrite: always
+  throttle: 1
+
+- name: create containers files
+  ansible.builtin.template:
+    src: "{{ item }}.json.j2"
+    dest: "{{ aws_image_dstfile }}.{{ item }}.json"
+  loop:
+    - containers
+    - containers-tag
+
+- name: import vmdk as AMI
+  ansible.builtin.command: aws ec2 import-image --description "{{ inventory_hostname }}" --encrypted --kms-key-id "{{ aws_kms_key }}" --disk-containers "file://{{ aws_image_dstfile }}.containers.json" --tag-specifications "file://{{ aws_image_dstfile }}.containers-tag.json"
+  register: ami_import
+
+- set_fact:
+    cacheable: true
+    ami_import_out: "{{ ami_import.stdout | from_json }}"
+
+- debug:
+    var: ami_import_out

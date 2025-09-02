@@ -1,0 +1,4 @@
+---
+# defaults file for aws-import-image
+aws_image_srcfile: "/tmp/{{ inventory_hostname }}.qcow2"
+aws_image_dstfile: "/tmp/{{ inventory_hostname }}.vmdk"

@@ -1,0 +1,94 @@
+---
+# tasks file for aws-import-status
+- name: check status of import
+  ansible.builtin.command: aws ec2 describe-import-image-tasks --import-task-ids "{{ ami_import_out.ImportTaskId }}"
+  register: ami_import
+  changed_when: false
+
+- set_fact:
+    ami_import_check: "{{ ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Status') | first == 'completed') }}"
+
+- name: check status of import 20%
+  ansible.builtin.command: aws ec2 describe-import-image-tasks --import-task-ids "{{ ami_import_out.ImportTaskId }}"
+  register: ami_import
+  until: |
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Status') | first == 'completed') or
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Progress') | map('default', '0') | first | int) > 20
+  retries: 25
+  delay: 60
+  changed_when: false
+  when: not ami_import_check
+
+- name: check status of import 40%
+  ansible.builtin.command: aws ec2 describe-import-image-tasks --import-task-ids "{{ ami_import_out.ImportTaskId }}"
+  register: ami_import
+  until: |
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Status') | first == 'completed') or
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Progress') | map('default', '0') | first | int) > 40
+  retries: 25
+  delay: 60
+  changed_when: false
+  when: not ami_import_check
+
+- name: check status of import 60%
+  ansible.builtin.command: aws ec2 describe-import-image-tasks --import-task-ids "{{ ami_import_out.ImportTaskId }}"
+  register: ami_import
+  until: |
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Status') | first == 'completed') or
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Progress') | map('default', '0') | first | int) > 60
+  retries: 25
+  delay: 60
+  changed_when: false
+  when: not ami_import_check
+
+- name: check status of import 80%
+  ansible.builtin.command: aws ec2 describe-import-image-tasks --import-task-ids "{{ ami_import_out.ImportTaskId }}"
+  register: ami_import
+  until: |
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Status') | first == 'completed') or
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Progress') | map('default', '0') | first | int) > 80
+  retries: 25
+  delay: 60
+  changed_when: false
+  when: not ami_import_check
+
+- name: check status of import 100%
+  ansible.builtin.command: aws ec2 describe-import-image-tasks --import-task-ids "{{ ami_import_out.ImportTaskId }}"
+  register: ami_import
+  until: |
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Status') | first == 'completed') or
+    ( (ami_import.stdout | from_json).ImportImageTasks | map(attribute='Progress') | map('default', '0') | first | int) > 99
+  retries: 25
+  delay: 60
+  changed_when: false
+  when: not ami_import_check
+
+- name: get ami by import name
+  amazon.aws.ec2_ami_info:
+    owners: self
+    filters:
+      name: "{{ ami_import_out.ImportTaskId }}"
+  register: ami_info
+  failed_when:
+    - ami_info.images | length == 0
+    - "'image_id' not in ami_info.images[0]"
+
+- name: tag image with name
+  amazon.aws.ec2_tag:
+    resource: "{{ ami_info.images[0].image_id }}"
+    state: present
+    tags:
+      Name: "{{ inventory_hostname }}"
+      imported_from: rhib
+
+- name: tag snapshots with name
+  amazon.aws.ec2_tag:
+    resource: "{{ item.ebs.snapshot_id }}"
+    state: present
+    tags:
+      Name: "{{ inventory_hostname }} dev {{ item.device_name }}"
+      imported_from: rhib
+      device: "{{ item.device_name }}"
+  loop: "{{ ami_info.images[0].block_device_mappings }}"
+  loop_control:
+    label: "{{ item.ebs.snapshot_id }}"

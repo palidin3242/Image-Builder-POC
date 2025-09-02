@@ -1,0 +1,8 @@
+---
+# vars file for rh-patch-create
+patch_template_new:
+  name: "{{ patch_template_name }}"
+  description: "{{ patch_template_description }}"
+  config:
+    to_time: "{{ patch_template_time }}"
+  inventory_ids: "{{ patch_template_ids }}"

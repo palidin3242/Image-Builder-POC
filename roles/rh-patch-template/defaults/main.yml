@@ -1,0 +1,8 @@
+---
+# defaults file for rh-patch-create
+patch_template_default_time: "{{ '%Y-%m-%dT00:00:00Z' | strftime(now(utc=true).timestamp()) }}"
+patch_template_name: DEFAULT_TEMPLATE_NAME
+patch_template_description: "Patch Template for {{ patch_template_name }}"
+patch_template_time: "{{ patch_template_default_time }}"
+patch_template_ids: []
+patch_template_create: true

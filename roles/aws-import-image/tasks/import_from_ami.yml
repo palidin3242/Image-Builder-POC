@@ -1,0 +1,42 @@
+---
+# tasks file for aws-import-image
+- name: copy RH AMI to self AWS account
+  ansible.builtin.command: 'aws ec2 copy-image --source-region {{ image_info.region }} --source-image-id {{ image_info.ami }} --encrypted --kms-key-id {{ aws_kms_key }} --region {{ image_info.region }} --description "{{ inventory_hostname }} copied from {{ image_info.ami }}" --name "{{ inventory_hostname }}" --copy-image-tags'
+  register: ami_copy
+
+- set_fact:
+    cacheable: true
+    ami_copy: "{{ ami_copy.stdout | from_json }}"
+    # "ImageId": "ami-08b644dbb789f3609"
+
+- debug:
+    var: ami_copy
+
+- name: set name tag
+  amazon.aws.ec2_tag:
+    region: "{{ image_info.region }}"
+    resource: "{{ ami_copy.ImageId }}"
+    state: present
+    tags:
+      Name: "{{ inventory_hostname }}"
+
+- name: get AMI info
+  amazon.aws.ec2_ami_info:
+    image_ids: "{{ ami_copy.ImageId }}"
+  register: ec2_ami_info
+
+- debug:
+    var: ec2_ami_info
+
+- set_fact:
+      ami_image_check: "{{ ec2_ami_info.images | map(attribute='state') | first == 'available' }}"
+
+- name: check when image is available
+  amazon.aws.ec2_ami_info:
+    image_ids: "{{ ami_copy.ImageId }}"
+  register: ec2_ami_info
+  until: "ec2_ami_info.images | map(attribute='state') | first == 'available'"
+  retries: 20
+  delay: 60
+  changed_when: false
+  when: not ami_image_check

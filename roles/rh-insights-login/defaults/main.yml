@@ -1,0 +1,4 @@
+---
+# defaults file for rhib-login
+token: ''
+token_expire: 0

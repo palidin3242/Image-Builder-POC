@@ -1,0 +1,3 @@
+---
+# vars file for rhib-create
+default_created: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(now(utc=true).timestamp() - (86400 * 365) ) }}"
