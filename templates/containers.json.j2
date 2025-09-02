@@ -1,0 +1,10 @@
+[
+  {
+    "Description": "{{ inventory_hostname }}",
+    "Format": "vmdk",
+    "UserBucket": {
+      "S3Bucket": "gonoph-net-imgbuilder",
+      "S3Key": "{{ inventory_hostname }}.vmdk"
+    }
+  }
+]
